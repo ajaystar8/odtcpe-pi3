@@ -28,7 +28,7 @@ For data preprocessing:
 
 ## 1. Monocular Depth Estimation
 
-See [monodepth/README.md](monodepth/README.md) for more details.ß
+See [monodepth/README.md](monodepth/README.md) for more details.
 
 ```bash
 python monodepth/infer.py
@@ -37,7 +37,7 @@ python monodepth/eval.py
 
 ## 2. Video Depth Estimation
 
-configs in `configs/evaluation/videodepth.yaml`, see [videodepth/README.md](videodepth/README.md) for more details.ß
+configs in `configs/evaluation/videodepth.yaml`, see [videodepth/README.md](videodepth/README.md) for more details.
 
 ```bash
 python videodepth/infer.py
