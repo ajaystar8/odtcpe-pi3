@@ -1,183 +1,76 @@
-<h1 align="center">🌌 <em>&pi;³</em>: Scalable Permutation-Equivariant Visual Geometry Learning</h1>
+# π³ Training Code
 
-<div align="center">
-    <p>
-        <a href="https://github.com/yyfz">Yifan Wang</a><sup>1*</sup>&nbsp;&nbsp;
-        <a href="https://zhoutimemachine.github.io">Jianjun Zhou</a><sup>123*</sup>&nbsp;&nbsp;
-        <a href="https://www.haoyizhu.site">Haoyi Zhu</a><sup>1</sup>&nbsp;&nbsp;
-        <a href="https://github.com/AmberHeart">Wenzheng Chang</a><sup>1</sup>&nbsp;&nbsp;
-        <a href="https://github.com/yangzhou24">Yang Zhou</a><sup>1</sup>
-        <br>
-        <a href="https://github.com/LiZizun">Zizun Li</a><sup>1</sup>&nbsp;&nbsp;
-        <a href="https://github.com/SOTAMak1r">Junyi Chen</a><sup>1</sup>&nbsp;&nbsp;
-        <a href="https://oceanpang.github.io">Jiangmiao Pang</a><sup>1</sup>&nbsp;&nbsp;
-        <a href="https://cshen.github.io">Chunhua Shen</a><sup>2</sup>&nbsp;&nbsp;
-        <a href="https://tonghe90.github.io">Tong He</a><sup>13†</sup>
-    </p>
-    <p>
-        <sup>1</sup>Shanghai AI Lab &nbsp;&nbsp;&nbsp;
-        <sup>2</sup>ZJU &nbsp;&nbsp;&nbsp;
-        <sup>3</sup>SII
-    </p>
-    <p>
-        <sup>*</sup> Equal Contribution &nbsp;&nbsp;&nbsp;
-        <sup>†</sup> Corresponding Author
-    </p>
-</div>
+Welcome to the official training code for the π³ project.
 
-<p align="center">
-    <a href="https://arxiv.org/abs/2507.13347" target="_blank">
-    <img src="https://img.shields.io/badge/Paper-00AEEF?style=plastic&logo=arxiv&logoColor=white" alt="Paper">
-    </a>
-    <a href="https://yyfz.github.io/pi3/" target="_blank">
-    <img src="https://img.shields.io/badge/Project Page-F78100?style=plastic&logo=google-chrome&logoColor=white" alt="Project Page">
-    </a>
-    <a href="https://huggingface.co/spaces/yyfz233/Pi3" target="_blank">
-    <img src="https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Demo-blue" alt="Hugging Face Demo">
-    </a>
-</p>
-
-<div align="center">
-    <a href="[PROJECT_PAGE_LINK_HERE]">
-        <img src="assets/main.png" width="90%">
-    </a>
-    <p>
-        <i>&pi;³ reconstructs visual geometry without a fixed reference view, achieving robust, state-of-the-art performance.</i>
-    </p>
-</div>
+This document provides a comprehensive guide to training the π³ model. We've strived to make this code robust and accurate, but issues may still exist. We highly appreciate any bug reports or suggestions for improvement. Please feel free to open an issue in this repository to share your feedback.
 
 
-## 📣 Updates
-* **[July 29, 2025]** 📈 Evaluation code is released! See `evaluation` branch for details.
-* **[July 16, 2025]** 🚀 Hugging Face Demo and inference code are released!
+## 💾 Data Preparation
+
+We provide three example datasets to get you started. Before you begin, **please ensure the `data_root` path in the corresponding dataloader script (located in the `datasets/` directory) is correctly set to your data's location.**
+
+### Data Sampling Strategy
+
+We provide three example data loaders, each designed with a specific sampling strategy to handle different datasets effectively.
+
+The core philosophy is to create training batches with frames that are neither too dense nor too sparse. This is achieved by primarily sampling frames at intervals while occasionally including consecutive frames to ensure model robustness.
+
+Here is a summary of the strategies:
+
+  * **For small-scale indoor scenes**, frames are randomly sampled from the entire sequence.
+  * **For large-scale indoor scenes or long sequences**, a dynamic sliding window approach is used. Frames are typically sampled randomly within this window. To ensure wider coverage, the window is occasionally divided into sub-intervals, with one frame sampled from each. There's also a small chance of sampling frames from the entire scene to capture global context.
 
 
-## ✨ Overview
-We introduce $\pi^3$ (Pi-Cubed), a novel feed-forward neural network that revolutionizes visual geometry reconstruction by **eliminating the need for a fixed reference view**. Traditional methods, which rely on a designated reference frame, are often prone to instability and failure if the reference is suboptimal.
+## 🚀 Training Process
 
-In contrast, $\pi^3$ employs a fully **permutation-equivariant** architecture. This allows it to directly predict affine-invariant camera poses and scale-invariant local point maps from an unordered set of images, breaking free from the constraints of a reference frame. This design makes our model inherently **robust to input ordering** and **highly scalable**.
+Our model is trained in three sequential stages. Please follow the steps in order.
 
-A key emergent property of our simple, bias-free design is the learning of a dense and structured latent representation of the camera pose manifold. Without complex priors or training schemes, $\pi^3$ achieves **state-of-the-art performance** 🏆 on a wide range of tasks, including camera pose estimation, monocular/video depth estimation, and dense point map estimation.
+> **Note:** The command below is an example using 8 GPUs. You should adjust the number of GPUs (`num_processes`) and training epochs based on your specific dataset and hardware.
 
+### Stage 1: Low-Resolution Training
 
-## 🚀 Quick Start
+This initial stage trains the model on low-resolution data to establish a foundational checkpoint.
 
-### 1. Clone & Install Dependencies
-First, clone the repository and install the required packages.
-```bash
-git clone https://github.com/yyfz/Pi3.git
-cd Pi3
-pip install -r requirements.txt
-```
-
-### 2\. Run Inference from Command Line
-
-Try our example inference script. You can run it on a directory of images or a video file.
-
-If the automatic download from Hugging Face is slow, you can download the model checkpoint manually from [here](https://huggingface.co/yyfz233/Pi3/resolve/main/model.safetensors) and specify its local path using the `--ckpt` argument.
+**Command:**
 
 ```bash
-# Run with default example video
-python example.py
-
-# Run on your own data (image folder or .mp4 file)
-python example.py --data_path <path/to/your/images_dir_or_video.mp4>
+accelerate launch --config_file configs/accelerate/ddp.yaml \
+--num_processes 8 --num_machines 1 \
+scripts/train_pi3.py train=train_pi3_lowres name=pi3_lowres
 ```
 
-**Optional Arguments:**
+### Stage 2: High-Resolution Training
 
-  * `--data_path`: Path to the input image directory or a video file. (Default: `examples/skating.mp4`)
-  * `--save_path`: Path to save the output `.ply` point cloud. (Default: `examples/result.ply`)
-  * `--interval`: Frame sampling interval. (Default: `1` for images, `10` for video)
-  * `--ckpt`: Path to a custom model checkpoint file.
-  * `--device`: Device to run inference on. (Default: `cuda`)
+This stage fine-tunes the model on high-resolution data, loading the weights from the previous stage.
 
-### 3\. Run with Gradio Demo
-
-You can also launch a local Gradio demo for an interactive experience.
+**Command:**
 
 ```bash
-# Install demo-specific requirements
-pip install -r requirements_demo.txt
-
-# Launch the demo
-python demo_gradio.py
+accelerate launch --config_file configs/accelerate/ddp.yaml \
+--num_processes 8 --num_machines 1 \
+scripts/train_pi3.py train=train_pi3_highres name=pi3_highres \
+model.ckpt=<path-to-lowres-checkpoint>
 ```
 
+> **Note:** Please replace `<path-to-lowres-checkpoint>` with the actual path to the checkpoint file saved from Stage 1.
 
-## 🛠️ Detailed Usage
+### Stage 3: Confidence Branch Training
 
-### Model Input & Output
+This final stage trains the confidence prediction branch of the model.
 
-The model takes a tensor of images and outputs a dictionary containing the reconstructed geometry.
+**Prerequisite:**
+Before running the command, you must download the Segformer pre-trained checkpoint.
 
-  * **Input**: A `torch.Tensor` of shape $B \times N \times 3 \times H \times W$ with pixel values in the range `[0, 1]`.
-  * **Output**: A `dict` with the following keys:
-      * `points`: Global point cloud unprojected by `local points` and `camerae_poses` (`torch.Tensor`, $B \times N \times H \times W \times 3$).
-      * `local_points`: Per-view local point maps (`torch.Tensor`,  $B \times N \times H \times W \times 3$).
-      * `conf`: Confidence scores for local points (values in `[0, 1]`, higher is better) (`torch.Tensor`,  $B \times N \times H \times W \times 1$).
-      * `camera_poses`: Camera-to-world transformation matrices (`4x4` in OpenCV format) (`torch.Tensor`,  $B \times N \times 4 \times 4$).
+  * **Download Link:** [segformer.b0.512x512.ade.160k.pth](https://connecthkuhk-my.sharepoint.com/personal/xieenze_connect_hku_hk/_layouts/15/onedrive.aspx?id=%2Fpersonal%2Fxieenze%5Fconnect%5Fhku%5Fhk%2FDocuments%2Fsegformer%2Ftrained%5Fmodels&ga=1)
+  * **Required Path:** Place the downloaded file at `ckpts/segformer.b0.512x512.ade.160k.pth`.
 
-### Example Code Snippet
+**Command:**
 
-Here is a minimal example of how to run the model on a batch of images.
-
-```python
-import torch
-from pi3.models.pi3 import Pi3
-from pi3.utils.basic import load_images_as_tensor # Assuming you have a helper function
-
-# --- Setup ---
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
-model = Pi3.from_pretrained("yyfz233/Pi3").to(device).eval()
-# or download checkpoints from `https://huggingface.co/yyfz233/Pi3/resolve/main/model.safetensors`
-
-# --- Load Data ---
-# Load a sequence of N images into a tensor
-# imgs shape: (N, 3, H, W).
-# imgs value: [0, 1]
-imgs = load_images_as_tensor('path/to/your/data', interval=10).to(device)
-
-# --- Inference ---
-print("Running model inference...")
-# Use mixed precision for better performance on compatible GPUs
-dtype = torch.bfloat16 if torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 8 else torch.float16
-
-with torch.no_grad():
-    with torch.amp.autocast('cuda', dtype=dtype):
-        # Add a batch dimension -> (1, N, 3, H, W)
-        results = model(imgs[None])
-
-print("Reconstruction complete!")
-# Access outputs: results['points'], results['camera_poses'] and results['local_points'].
+```bash
+accelerate launch --config_file configs/accelerate/ddp.yaml \
+--num_processes 8 --num_machines 1 \
+scripts/train_pi3.py train=train_pi3_conf name=pi3_conf \
+model.ckpt=<path-to-highres-checkpoint>
 ```
 
-
-## 🙏 Acknowledgements
-
-Our work builds upon several fantastic open-source projects. We'd like to express our gratitude to the authors of:
-
-  * [DUSt3R](https://github.com/naver/dust3r)
-  * [CUT3R](https://github.com/CUT3R/CUT3R)
-  * [VGGT](https://github.com/facebookresearch/vggt)
-
-
-## 📜 Citation
-
-If you find our work useful, please consider citing:
-
-```bibtex
-@misc{wang2025pi3,
-      title={$\pi^3$: Scalable Permutation-Equivariant Visual Geometry Learning}, 
-      author={Yifan Wang and Jianjun Zhou and Haoyi Zhu and Wenzheng Chang and Yang Zhou and Zizun Li and Junyi Chen and Jiangmiao Pang and Chunhua Shen and Tong He},
-      year={2025},
-      eprint={2507.13347},
-      archivePrefix={arXiv},
-      primaryClass={cs.CV},
-      url={https://arxiv.org/abs/2507.13347}, 
-}
-```
-
-
-## 📄 License
-For academic use, this project is licensed under the 2-clause BSD License. See the [LICENSE](./LICENSE) file for details. For commercial use, please contact the authors.
+> **Note:** Please replace `<path-to-highres-checkpoint>` with the actual path to the checkpoint file saved from Stage 2.

@@ -235,6 +235,40 @@ class MemEffCrossAttentionRope(CrossAttentionRope):
         x = self.proj_drop(x)
         return x
 
+class FlashCrossAttentionRope(CrossAttentionRope):
+    def forward(self, query: Tensor, key: Tensor, value: Tensor, attn_bias=None, qpos=None, kpos=None) -> Tensor:
+        B, N, C = query.shape
+        _, M, _ = key.shape
+
+        # 1. 投射 query, key, value 并调整维度为 (B, num_heads, Seq_Len, head_dim)
+        q = self.q_proj(query).reshape(B, N, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
+        k = self.k_proj(key).reshape(B, M, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
+        v = self.v_proj(value).reshape(B, M, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
+
+        q, k = self.q_norm(q).to(v.dtype), self.k_norm(k).to(v.dtype)
+        if self.rope is not None:
+            q = self.rope(q, qpos)
+            k = self.rope(k, kpos)
+        
+        dropout_p = self.attn_drop.p if self.training else 0.0
+        
+        if q.dtype == torch.bfloat16:
+            with nn.attention.sdpa_kernel(SDPBackend.FLASH_ATTENTION):
+                x = scaled_dot_product_attention(
+                    q, k, v, attn_mask=attn_bias, dropout_p=dropout_p
+                )
+        else:
+            with nn.attention.sdpa_kernel([SDPBackend.MATH, SDPBackend.EFFICIENT_ATTENTION]):
+                x = scaled_dot_product_attention(
+                    q, k, v, attn_mask=attn_bias, dropout_p=dropout_p
+                )
+
+        x = x.transpose(1, 2).reshape(B, N, C)
+
+        x = self.proj(x)
+        x = self.proj_drop(x)
+        return x
+
 class AttentionRope(nn.Module):
     def __init__(
         self,
