@@ -8,6 +8,7 @@ model:
     freeze_encoder: true
     use_global_points: false
     train_conf: false
+    num_dec_blk_not_to_checkpoint: 4
     ckpt: null # <path-to-your-pretrain-checkpoint>
 
 loss:

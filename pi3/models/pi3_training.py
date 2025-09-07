@@ -32,7 +32,7 @@ class Pi3(nn.Module):
             freeze_encoder=True,
             use_global_points=False,
             train_conf=False,
-            num_dec_blk_to_checkpoint=4,
+            num_dec_blk_not_to_checkpoint=4,
             ckpt=None,
         ):
         super().__init__()
@@ -191,7 +191,7 @@ class Pi3(nn.Module):
             print('Freezing the encoder.')
             freeze_all_params([self.encoder])
 
-        self.num_dec_blk_to_checkpoint = num_dec_blk_to_checkpoint
+        self.num_dec_blk_not_to_checkpoint = num_dec_blk_not_to_checkpoint
 
         if ckpt is not None:
             checkpoint = torch.load(ckpt, weights_only=False, map_location='cpu')
@@ -236,7 +236,7 @@ class Pi3(nn.Module):
                 pos = pos.reshape(B, N*hw, -1)
                 hidden = hidden.reshape(B, N*hw, -1)
 
-            if i >= self.num_dec_blk_to_checkpoint and self.training:
+            if i >= self.num_dec_blk_not_to_checkpoint and self.training:
                 hidden = checkpoint(blk, hidden, xpos=pos, use_reentrant=False)
             else:
                 hidden = blk(hidden, xpos=pos)

@@ -74,3 +74,13 @@ model.ckpt=<path-to-highres-checkpoint>
 ```
 
 > **Note:** Please replace `<path-to-highres-checkpoint>` with the actual path to the checkpoint file saved from Stage 2.
+
+
+## How to Reduce GPU Memory Usage
+To reduce GPU memory consumption, adjust the following parameters in the recommended order of priority:
+
+1. `train.max_img_per_gpu`: Decrease this value to reduce the number of images per batch on each GPU.
+
+2. `train.pixel_count_range`: Lower the range to process images with a smaller pixel count.
+
+3. `model.num_dec_blk_not_to_checkpoint`: Increase this value to apply activation checkpointing to more decoder blocks, which saves memory at the cost of some computational speed.
