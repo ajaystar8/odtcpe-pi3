@@ -61,7 +61,7 @@ This final stage trains the confidence prediction branch of the model.
 **Prerequisite:**
 Before running the command, you must download the Segformer pre-trained checkpoint.
 
-  * **Download Link:** [segformer.b0.512x512.ade.160k.pth](https://connecthkuhk-my.sharepoint.com/personal/xieenze_connect_hku_hk/_layouts/15/onedrive.aspx?id=%2Fpersonal%2Fxieenze%5Fconnect%5Fhku%5Fhk%2FDocuments%2Fsegformer%2Ftrained%5Fmodels&ga=1)
+  * **Download Link:** [segformer.b0.512x512.ade.160k.pth](https://github.com/NVlabs/SegFormer?tab=readme-ov-file) (from the OneDrive link for evaluation in README)
   * **Required Path:** Place the downloaded file at `ckpts/segformer.b0.512x512.ade.160k.pth`.
 
 **Command:**
