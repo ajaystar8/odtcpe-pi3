@@ -21,7 +21,7 @@ from torch.nn.attention import SDPBackend
 XFORMERS_ENABLED = os.environ.get("XFORMERS_DISABLED") is None
 try:
     if XFORMERS_ENABLED:
-        from xformers.ops import memory_efficient_attention, unbind
+        from xformers.ops import memory_efficient_attention, unbind # type: ignore
 
         XFORMERS_AVAILABLE = True
         # warnings.warn("xFormers is available (Attention)")
@@ -319,9 +319,12 @@ class MemEffAttentionRope(AttentionRope):
         x = self.proj_drop(x)
         return x
 
-    
+"""
+Modified by Ajay Rajendra Kumar for ODT_CPE on 09/11/2025
+"""
 class FlashAttentionRope(AttentionRope):
-    def forward(self, x: Tensor, attn_bias=None, xpos=None) -> Tensor:
+    def forward(self, x: Tensor, Np: int, attn_bias=None, xpos=None) -> Tensor:
+
         B, N, C = x.shape
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).transpose(1, 3)
 
@@ -329,9 +332,17 @@ class FlashAttentionRope(AttentionRope):
         q, k, v = [qkv[:,:,i] for i in range(3)]
         q, k = self.q_norm(q).to(v.dtype), self.k_norm(k).to(v.dtype)
 
+        # Apply RoPE only to the patch tokens as voxel tokens already have FPE
+        q_patch, q_voxel = q[:, :, :Np], q[:, :, Np:]
+        k_patch, k_voxel = k[:, :, :Np], k[:, :, Np:]
+
         if self.rope is not None:
-            q = self.rope(q, xpos)
-            k = self.rope(k, xpos)
+            q_patch = self.rope(q_patch, xpos)
+            k_patch = self.rope(k_patch, xpos)
+        
+        # Re-concatenate the patch and voxel tokens
+        q = torch.cat([q_patch, q_voxel], dim=2)
+        k = torch.cat([k_patch, k_voxel], dim=2)
 
         if q.dtype == torch.bfloat16:
             with nn.attention.sdpa_kernel(SDPBackend.FLASH_ATTENTION):

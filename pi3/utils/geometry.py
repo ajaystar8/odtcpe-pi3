@@ -373,3 +373,43 @@ def depth_edge(depth: torch.Tensor, atol: float = None, rtol: float = None, kern
         edge |= (diff / depth).nan_to_num_() > rtol
     edge = edge.reshape(*shape)
     return edge
+
+def ref_points_generator(start, shape, voxel_size, normalize=True):
+    """
+    Generates a 3D grid of voxel centroids in a specified region.
+
+    Args:
+        start (list or tuple): Starting coordinates of the grid in 3D space [min_x, min_y, min_z].
+        shape (tuple): Dimensions of the grid (W, H, D), where:
+            - W: Number of voxels along the x-axis.
+            - H: Number of voxels along the y-axis.
+            - D: Number of voxels along the z-axis.
+        voxel_size (float): The size of each voxel in 3D space.
+        normalize (bool, optional): Whether to normalize the coordinates to the range [0, 1]. Defaults to True.
+
+    Returns:
+        torch.Tensor: A tensor of shape (W, H, D, 3) containing the 3D coordinates of the voxel centroids.
+                      Each element represents the (x, y, z) coordinates of a voxel center.
+    """
+    min_x, min_y, min_z = start
+    x_range = torch.arange(shape[0], dtype=torch.float) * voxel_size + voxel_size / 2 + min_x # [0...47] * 1 + 0.5 + -0.5 = [0...47]
+    y_range = torch.arange(shape[1], dtype=torch.float) * voxel_size + voxel_size / 2 + min_y # [0...15] * 1 + 0.5 + -0.5 = [0...15]
+    z_range = torch.arange(shape[2], dtype=torch.float) * voxel_size + voxel_size / 2 + min_z # [0...79] * 1 + 0.5 + -0.5 = [0...79]
+
+    W, H, D = x_range.shape[0], y_range.shape[0], z_range.shape[0] # 48, 16, 80
+
+    grid_x = x_range.view(-1, 1, 1).repeat(1, H, D) # [48, 16, 80]
+    grid_y = y_range.view(1, -1, 1).repeat(W, 1, D) # [48, 16, 80]
+    grid_z = z_range.view(1, 1, -1).repeat(W, H, 1) # [48, 16, 80]
+
+    coords = torch.stack((grid_x, grid_y, grid_z), 3).float() # basically a meshgrid of voxel centroids
+
+    if normalize:
+        coords[..., 0] = (coords[..., 0] - torch.min(coords[..., 0])) / (
+                torch.max(coords[..., 0]) - torch.min(coords[..., 0]) + 1e-30)
+        coords[..., 1] = (coords[..., 1] - torch.min(coords[..., 1])) / (
+                torch.max(coords[..., 1]) - torch.min(coords[..., 1]) + 1e-30)
+        coords[..., 2] = (coords[..., 2] - torch.min(coords[..., 2])) / (
+                torch.max(coords[..., 2]) - torch.min(coords[..., 2]) + 1e-30)
+
+    return coords

@@ -24,7 +24,7 @@ from ..dinov2.layers.mlp import Mlp
 XFORMERS_ENABLED = os.environ.get("XFORMERS_DISABLED") is None
 try:
     if XFORMERS_ENABLED:
-        from xformers.ops import fmha, scaled_index_add, index_select_cat
+        from xformers.ops import fmha, scaled_index_add, index_select_cat # type: ignore
 
         XFORMERS_AVAILABLE = True
         # warnings.warn("xFormers is available (Block)")
@@ -256,6 +256,9 @@ class NestedTensorBlock(Block):
         else:
             raise AssertionError
 
+"""
+Modified by Ajay Rajendra Kumar for ODT_CPE on 09/11/2025
+"""
 class BlockRope(nn.Module):
     def __init__(
         self,
@@ -307,9 +310,9 @@ class BlockRope(nn.Module):
 
         self.sample_drop_ratio = drop_path
 
-    def forward(self, x: Tensor, xpos=None) -> Tensor:
+    def forward(self, x: Tensor, Np:int, xpos=None) -> Tensor:
         def attn_residual_func(x: Tensor) -> Tensor:
-            return self.ls1(self.attn(self.norm1(x), xpos=xpos))
+            return self.ls1(self.attn(self.norm1(x), Np=Np, xpos=xpos))
 
         def ffn_residual_func(x: Tensor) -> Tensor:
             return self.ls2(self.mlp(self.norm2(x)))
