@@ -15,7 +15,7 @@ from .layers.camera_head import CameraHead
 from .dinov2.hub.backbones import dinov2_vitl14, dinov2_vitl14_reg
 from huggingface_hub import PyTorchModelHubMixin
 
-class Pi3(nn.Module, PyTorchModelHubMixin):
+class Pi3Voxels(nn.Module, PyTorchModelHubMixin):
     def __init__(
             self,
             pos_type='rope100',
@@ -98,8 +98,8 @@ class Pi3(nn.Module, PyTorchModelHubMixin):
         self.query_shape = (6, 2, 10) 
         self.xyz = math.prod(self.query_shape) 
         self.voxel_size = 3 
-        self.voxel_position_encoder = VoxelPositionEncoder(dec_embed_dim)
-        self.ooi_embedding = nn.Parameter(torch.zeros((1, dec_embed_dim, 1, 1)), requires_grad=True)
+        self.voxel_position_encoder = VoxelPositionEncoder(enc_embed_dim)
+        self.ooi_embedding = nn.Parameter(torch.zeros((1, enc_embed_dim, 1, 1)), requires_grad=True)
 
         # ----------------------
         #  Local Points Decoder
@@ -220,14 +220,10 @@ class Pi3(nn.Module, PyTorchModelHubMixin):
         voxel_pos_emb = positional_encoding + pixel_aligned_features # [B, xyz, C]
         return voxel_pos_emb.view(B, xyz, C) # [B, xyz, C]
 
-    def decode(self, hidden, N, H, W):
+    def decode(self, hidden, N, H, W, *, camera_intrinsics, camera_extrinsics):
 
         BN, hw, _ = hidden.shape # [11, 1300, 1024]
         B = BN // N
-
-        # TODO: camera intrinsics and extrinsics need to be passed as input
-        camera_intrinsics = torch.randn(B, N, 3, 3).to(hidden.device) # TODO: replace with actual camera_intrinsics
-        camera_extrinsics = torch.randn(B, N, 4, 4).to(hidden.device) # TODO: replace with actual camera_extrinsics
 
         # get pixel-aligned voxel positional embeddings
         scale = (W//self.patch_size / W, H//self.patch_size / H)
@@ -265,7 +261,6 @@ class Pi3(nn.Module, PyTorchModelHubMixin):
         hidden = torch.cat([hidden, pixel_aligned_voxel_feats], dim=1) # [B, N*hw, C] + [B, xyz, C] -> [B, N*hw | xyz, C]
         
         for i in range(len(self.decoder)):
-            print(f"Iteration = {i} | hidden.shape = {hidden.shape}")
             blk = self.decoder[i]
             
             # Prepare input according to Alternating Attention mechanism, as described in VGGT paper
@@ -273,33 +268,31 @@ class Pi3(nn.Module, PyTorchModelHubMixin):
                 # sequence dimension is hw -> frame-wise/local self attention
                 pos = pos.reshape(B*N, hw, -1)
                 # concat x and voxel_feats along sequence dimension
-                pixel_aligned_voxel_feats = hidden[:, N*hw:, :].unsqueeze(1).expand(B, N, self.xyz, -1).view(B*N, self.xyz, -1) # [B*N, xyz, C]
-                hidden = hidden[:, :N*hw, :].view(B*N, hw, -1) # [BN, hw, C]
+                pixel_aligned_voxel_feats = hidden[:, N*hw:, :].contiguous().unsqueeze(1).expand(B, N, self.xyz, -1).reshape(B*N, self.xyz, -1) # [B*N, xyz, C]
+                hidden = hidden[:, :N*hw, :].contiguous().view(B*N, hw, -1) # [BN, hw, C]
                 hidden = torch.cat([hidden, pixel_aligned_voxel_feats], dim=1) # [BN, hw, C] + [BN, xyz, C] -> [BN, hw | xyz, C]
                 hidden = blk(hidden, Np=hw, xpos=pos)
             else:
                 # sequence dimension is N*hw -> global self attention -> attends to tokens across all frames jointly
                 pos = pos.reshape(B, N*hw, -1)
                 # hidden -> [BN, hw | xyz, C]
-                pixel_aligned_voxel_feats = hidden[:, hw:, :].view(B, N, xyz, -1).mean(dim=1) # [B, N, xyz, C] -> [B, xyz, C]
-                hidden = hidden[:, :hw, :].view(B, N*hw, -1) # [B, N*hw, C]
+                pixel_aligned_voxel_feats = hidden[:, hw:, :].contiguous().view(B, N, xyz, -1).mean(dim=1) # [B, N, xyz, C] -> [B, xyz, C]
+                hidden = hidden[:, :hw, :].contiguous().view(B, N*hw, -1) # [B, N*hw, C]
                 hidden = torch.cat([hidden, pixel_aligned_voxel_feats], dim=1) # [B, N*hw, C] + [B, xyz, C] -> [B, N*hw | xyz, C]
                 hidden = blk(hidden, Np=N*hw, xpos=pos)
 
             if i+1 in [len(self.decoder)-1, len(self.decoder)]:
                 # [B, N*hw | xyz, C] and [BN, hw | xyz, C]
                 if hidden.shape[0] == B*N:
-                    pixel_aligned_voxel_feats = hidden[:, hw:, :].view(B, N, self.xyz, -1).mean(dim=1) # [B, N, xyz, C] -> [B, xyz, C]
-                    hidden_distilled = torch.cat([hidden[:, :hw, :].view(B, N*hw, -1), pixel_aligned_voxel_feats], dim=1) # [B, N*hw | xyz, C]
+                    pixel_aligned_voxel_feats = hidden[:, hw:, :].contiguous().view(B, N, self.xyz, -1).mean(dim=1) # [B, N, xyz, C] -> [B, xyz, C]
+                    hidden_distilled = torch.cat([hidden[:, :hw, :].contiguous().view(B, N*hw, -1), pixel_aligned_voxel_feats], dim=1) # [B, N*hw | xyz, C]
                     final_output.append(hidden_distilled)
                 else:
                     final_output.append(hidden)
-                print(f'last input shape = {final_output[-1].shape}')
 
         return torch.cat([final_output[0], final_output[1]], dim=-1), pos.reshape(B*N, hw, -1)
     
-    def forward(self, imgs):
-        # TODO: camera intrinsics and extrinsics need to be passed as input
+    def forward(self, imgs, camera_intrinsics, camera_extrinsics):
 
         imgs = (imgs - self.image_mean) / self.image_std
 
@@ -313,15 +306,15 @@ class Pi3(nn.Module, PyTorchModelHubMixin):
             hidden = hidden["x_norm_patchtokens"] # [11, 1300, 1024]
 
         # Now, perform decoding
-        hidden, pos = self.decode(hidden, N, H, W) # [1, -1, 2048] (N*hw + 120) (2048 -> outputs of last two decoder layers concatenated)
+        hidden, _ = self.decode(hidden, N, H, W, 
+                                  camera_intrinsics=camera_intrinsics,
+                                  camera_extrinsics=camera_extrinsics) # [1, -1, 2048] (N*hw + 120) (2048 -> outputs of last two decoder layers concatenated)
 
         # remove register tokens and patch tokens
         hidden = hidden[:, -self.xyz:, :].permute(0, 2, 1).contiguous() # [B, xyz, 2C] -> [B, 2C, xyz]
-        hidden = hidden.reshape(B, -1, self.query_shape[0], self.query_shape[1], self.query_shape[2]) # [B, 2C, x, y, z]
-        print(f"hidden = {hidden.shape}")
+        hidden = hidden.view(B, -1, self.query_shape[0], self.query_shape[1], self.query_shape[2]) # [B, 2C, x, y, z]
 
-        print("Done")
-        return None
+        return hidden # [B, 2C, x, y, z]
 
 class VoxelPositionEncoder(nn.Module):
     """
