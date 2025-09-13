@@ -2,7 +2,7 @@ import torch
 import argparse
 from pi3.utils.basic import load_images_as_tensor, write_ply
 from pi3.utils.geometry import depth_edge
-from pi3.models.pi3 import Pi3
+from pi3.models.pi3_voxels import Pi3Voxels
 
 if __name__ == '__main__':
     # --- Argument Parsing ---
@@ -30,17 +30,18 @@ if __name__ == '__main__':
     # 1. Prepare model
     print(f"Loading model...")
     device = torch.device(args.device)
-    if args.ckpt is not None:
-        model = Pi3().to(device).eval()
-        if args.ckpt.endswith('.safetensors'):
-            from safetensors.torch import load_file
-            weight = load_file(args.ckpt)
-        else:
-            weight = torch.load(args.ckpt, map_location=device, weights_only=False)
+    model = Pi3Voxels().to(device).eval()
+    # if args.ckpt is not None:
+    #     model = Pi3().to(device).eval()
+    #     if args.ckpt.endswith('.safetensors'):
+    #         from safetensors.torch import load_file
+    #         weight = load_file(args.ckpt)
+    #     else:
+    #         weight = torch.load(args.ckpt, map_location=device, weights_only=False)
         
-        model.load_state_dict(weight)
-    else:
-        model = Pi3.from_pretrained("yyfz233/Pi3").to(device).eval()
+    #     model.load_state_dict(weight)
+    # else:
+    #     model = Pi3.from_pretrained("yyfz233/Pi3").to(device).eval()
         # or download checkpoints from `https://huggingface.co/yyfz233/Pi3/resolve/main/model.safetensors`, and `--ckpt ckpts/model.safetensors`
 
     # 2. Prepare input data
