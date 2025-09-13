@@ -12,21 +12,30 @@ from .layers.block import BlockRope
 from .layers.attention import FlashAttentionRope
 from .layers.transformer_head import TransformerDecoder, LinearPts3d
 from .layers.camera_head import CameraHead
-from .dinov2.hub.backbones import dinov2_vitl14, dinov2_vitl14_reg
+from .dinov2.hub.backbones import dinov2_vitl14, dinov2_vitl14_reg, dinov2_vits14_reg, dinov2_vitb14_reg
 from huggingface_hub import PyTorchModelHubMixin
 
 class Pi3Voxels(nn.Module, PyTorchModelHubMixin):
     def __init__(
             self,
             pos_type='rope100',
-            decoder_size='large',
+            encoder_size='small',
+            decoder_size='small',
         ):
         super().__init__()
 
         # ----------------------
         #        Encoder
         # ----------------------
-        self.encoder = dinov2_vitl14_reg(pretrained=False)
+        if encoder_size == 'small':
+            self.encoder = dinov2_vits14_reg(pretrained=False)
+        elif encoder_size == 'base':
+            self.encoder = dinov2_vitb14_reg(pretrained=False)
+        elif encoder_size == 'large':
+            self.encoder = dinov2_vitl14(pretrained=False)
+        else:
+            raise NotImplementedError
+        
         self.patch_size = 14
         del self.encoder.mask_token
 
@@ -100,37 +109,6 @@ class Pi3Voxels(nn.Module, PyTorchModelHubMixin):
         self.voxel_size = 3 
         self.voxel_position_encoder = VoxelPositionEncoder(enc_embed_dim)
         self.ooi_embedding = nn.Parameter(torch.zeros((1, enc_embed_dim, 1, 1)), requires_grad=True)
-
-        # ----------------------
-        #  Local Points Decoder
-        # ----------------------
-        self.point_decoder = TransformerDecoder(
-            in_dim=2*self.dec_embed_dim, 
-            dec_embed_dim=1024,
-            dec_num_heads=16,
-            out_dim=1024,
-            rope=self.rope,
-        )
-        self.point_head = LinearPts3d(patch_size=14, dec_embed_dim=1024, output_dim=3)
-
-        # ----------------------
-        #     Conf Decoder
-        # ----------------------
-        self.conf_decoder = deepcopy(self.point_decoder)
-        self.conf_head = LinearPts3d(patch_size=14, dec_embed_dim=1024, output_dim=1)
-
-        # ----------------------
-        #  Camera Pose Decoder
-        # ----------------------
-        self.camera_decoder = TransformerDecoder(
-            in_dim=2*self.dec_embed_dim, 
-            dec_embed_dim=1024,
-            dec_num_heads=16,                # 8
-            out_dim=512,
-            rope=self.rope,
-            use_checkpoint=False
-        )
-        self.camera_head = CameraHead(dim=512)
 
         # For ImageNet Normalize
         image_mean = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1)
