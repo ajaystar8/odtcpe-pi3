@@ -21,6 +21,7 @@ class Pi3Voxels(nn.Module, PyTorchModelHubMixin):
             pos_type='rope100',
             encoder_size='small',
             decoder_size='small',
+            pretrained_encoder=False,
         ):
         super().__init__()
 
@@ -28,11 +29,11 @@ class Pi3Voxels(nn.Module, PyTorchModelHubMixin):
         #        Encoder
         # ----------------------
         if encoder_size == 'small':
-            self.encoder = dinov2_vits14_reg(pretrained=False)
+            self.encoder = dinov2_vits14_reg(pretrained=pretrained_encoder)
         elif encoder_size == 'base':
-            self.encoder = dinov2_vitb14_reg(pretrained=False)
+            self.encoder = dinov2_vitb14_reg(pretrained=pretrained_encoder)
         elif encoder_size == 'large':
-            self.encoder = dinov2_vitl14(pretrained=False)
+            self.encoder = dinov2_vitl14_reg(pretrained=pretrained_encoder)
         else:
             raise NotImplementedError
         
