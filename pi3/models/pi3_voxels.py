@@ -154,6 +154,7 @@ class Pi3Voxels(nn.Module, PyTorchModelHubMixin):
         positional_encoding = self.voxel_position_encoder(voxel_centroids) # [B, xyz, C]
         
         # Pixel-aligned features for voxel centroids
+        # Here, the world is assumed to be the same as the camera coordinate frame of the left camera (cam_101)
 
         # 1. Bring voxel centroids from world coordinate frame to image plane
         coords_world = ref_points_generator(
