@@ -245,30 +245,24 @@ class Pi3Voxels(nn.Module, PyTorchModelHubMixin):
             
             # Prepare input according to Alternating Attention mechanism, as described in VGGT paper
             if i % 2 == 0:
-                # sequence dimension is hw -> frame-wise/local self attention
+                # sequence dimension is hw -> 'frame-wise/local self attention'
+                # voxel tokens not part of frame attention
                 pos = pos.reshape(B*N, hw, -1)
-                # concat x and voxel_feats along sequence dimension
-                pixel_aligned_voxel_feats = hidden[:, N*hw:, :].contiguous().unsqueeze(1).expand(B, N, self.xyz, -1).reshape(B*N, self.xyz, -1) # [B*N, xyz, C]
-                hidden = hidden[:, :N*hw, :].contiguous().view(B*N, hw, -1) # [BN, hw, C]
-                hidden = torch.cat([hidden, pixel_aligned_voxel_feats], dim=1) # [BN, hw, C] + [BN, xyz, C] -> [BN, hw | xyz, C]
-                hidden = blk(hidden, Np=hw, xpos=pos)
+
+                pixel_aligned_voxel_feats = hidden[:, N*hw:, :].contiguous() # [B, xyz, C] (remove voxel feats before frame attention)
+                hidden = hidden[:, :N*hw, :].contiguous().view(B*N, hw, -1) # [BN, hw, C] (perform self attention for images only)
+                
+                hidden = blk(hidden, Np=hw, xpos=pos) # [BN, hw, C]
+                hidden = hidden.view(B, N*hw, -1) # [B, N*hw, C]
+                hidden = torch.cat([hidden, pixel_aligned_voxel_feats], dim=1) # [B, N*hw, C] + [B, xyz, C] -> [B, N*hw | xyz, C] (attach the voxel feats again)
             else:
-                # sequence dimension is N*hw -> global self attention -> attends to tokens across all frames jointly
+                # sequence dimension is N*hw -> 'global self attention' -> attends to tokens across all frames jointly
                 pos = pos.reshape(B, N*hw, -1)
-                # hidden -> [BN, hw | xyz, C]
-                pixel_aligned_voxel_feats = hidden[:, hw:, :].contiguous().view(B, N, xyz, -1).mean(dim=1) # [B, N, xyz, C] -> [B, xyz, C]
-                hidden = hidden[:, :hw, :].contiguous().view(B, N*hw, -1) # [B, N*hw, C]
-                hidden = torch.cat([hidden, pixel_aligned_voxel_feats], dim=1) # [B, N*hw, C] + [B, xyz, C] -> [B, N*hw | xyz, C]
-                hidden = blk(hidden, Np=N*hw, xpos=pos)
+                hidden = blk(hidden, Np=N*hw, xpos=pos) # [B, N*hw | xyz, C]
 
             if i+1 in [len(self.decoder)-1, len(self.decoder)]:
                 # [B, N*hw | xyz, C] and [BN, hw | xyz, C]
-                if hidden.shape[0] == B*N:
-                    pixel_aligned_voxel_feats = hidden[:, hw:, :].contiguous().view(B, N, self.xyz, -1).mean(dim=1) # [B, N, xyz, C] -> [B, xyz, C]
-                    hidden_distilled = torch.cat([hidden[:, :hw, :].contiguous().view(B, N*hw, -1), pixel_aligned_voxel_feats], dim=1) # [B, N*hw | xyz, C]
-                    final_output.append(hidden_distilled)
-                else:
-                    final_output.append(hidden)
+                final_output.append(hidden)
 
         return torch.cat([final_output[0], final_output[1]], dim=-1), pos.reshape(B*N, hw, -1)
     
