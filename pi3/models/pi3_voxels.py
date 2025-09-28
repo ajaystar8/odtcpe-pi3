@@ -8,8 +8,8 @@ from .dinov2.layers import Mlp
 from ..utils.geometry import homogenize_points, ref_points_generator
 from ..utils.camera import affine_transform, reproject, scale_intrinsics
 from .layers.pos_embed import RoPE2D, PositionGetter
-from .layers.block import BlockRope
-from .layers.attention import FlashAttentionRope
+from .layers.block import BlockRope, BlockRopeModified
+from .layers.attention import FlashAttentionRope, FlashAttentionRopeModified
 from .layers.transformer_head import TransformerDecoder, LinearPts3d
 from .layers.camera_head import CameraHead
 from .dinov2.hub.backbones import dinov2_vitl14, dinov2_vitl14_reg, dinov2_vits14_reg, dinov2_vitb14_reg
@@ -75,6 +75,24 @@ class Pi3Voxels(nn.Module, PyTorchModelHubMixin):
         else:
             raise NotImplementedError
         self.decoder = nn.ModuleList([
+            BlockRopeModified(
+                dim=dec_embed_dim,
+                num_heads=dec_num_heads,
+                mlp_ratio=mlp_ratio,
+                qkv_bias=True,
+                proj_bias=True,
+                ffn_bias=True,
+                drop_path=0.0,
+                norm_layer=partial(nn.LayerNorm, eps=1e-6),
+                act_layer=nn.GELU,
+                ffn_layer=Mlp,
+                init_values=0.01,
+                qk_norm=True,
+                attn_class=FlashAttentionRopeModified,
+                rope=self.rope
+            ) for _ in range(dec_depth)])
+        # to perform self attention for voxel tokens
+        self.voxel_decoders = nn.ModuleList([
             BlockRope(
                 dim=dec_embed_dim,
                 num_heads=dec_num_heads,
@@ -90,7 +108,7 @@ class Pi3Voxels(nn.Module, PyTorchModelHubMixin):
                 qk_norm=True,
                 attn_class=FlashAttentionRope,
                 rope=self.rope
-            ) for _ in range(dec_depth)])
+            ) for _ in range(dec_depth//2)])
         self.dec_embed_dim = dec_embed_dim
 
         # ----------------------
@@ -244,24 +262,35 @@ class Pi3Voxels(nn.Module, PyTorchModelHubMixin):
             blk = self.decoder[i]
             
             # Prepare input according to Alternating Attention mechanism, as described in VGGT paper
+            ################# ALTERNATING ATTENTION #################
             if i % 2 == 0:
+                ####### FRAME ATTENTION #######
+                voxel_blk = self.voxel_decoders[i//2]
+                
                 # sequence dimension is hw -> 'frame-wise/local self attention'
-                # voxel tokens not part of frame attention
                 pos = pos.reshape(B*N, hw, -1)
 
                 pixel_aligned_voxel_feats = hidden[:, N*hw:, :].contiguous() # [B, xyz, C] (remove voxel feats before frame attention)
                 hidden = hidden[:, :N*hw, :].contiguous().view(B*N, hw, -1) # [BN, hw, C] (perform self attention for images only)
+
+                # self attention for voxel tokens
+                pixel_aligned_voxel_feats = voxel_blk(pixel_aligned_voxel_feats, xpos=None) # [B, xyz, C]
                 
+                # self attention for image tokens
                 hidden = blk(hidden, Np=hw, xpos=pos) # [BN, hw, C]
                 hidden = hidden.view(B, N*hw, -1) # [B, N*hw, C]
+                
+                # concatenate voxel tokens again
                 hidden = torch.cat([hidden, pixel_aligned_voxel_feats], dim=1) # [B, N*hw, C] + [B, xyz, C] -> [B, N*hw | xyz, C] (attach the voxel feats again)
             else:
+                ####### GLOBAL ATTENTION #######
+                
                 # sequence dimension is N*hw -> 'global self attention' -> attends to tokens across all frames jointly
                 pos = pos.reshape(B, N*hw, -1)
                 hidden = blk(hidden, Np=N*hw, xpos=pos) # [B, N*hw | xyz, C]
 
             if i+1 in [len(self.decoder)-1, len(self.decoder)]:
-                # [B, N*hw | xyz, C] and [BN, hw | xyz, C]
+                # [B, N*hw | xyz, C] 
                 final_output.append(hidden)
 
         return torch.cat([final_output[0], final_output[1]], dim=-1), pos.reshape(B*N, hw, -1)

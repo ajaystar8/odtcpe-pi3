@@ -322,7 +322,8 @@ class MemEffAttentionRope(AttentionRope):
 """
 Modified by Ajay Rajendra Kumar for ODT_CPE on 09/11/2025
 """
-class FlashAttentionRope(AttentionRope):
+# TODO: Merge these two classes into one with a flag
+class FlashAttentionRopeModified(AttentionRope):
     def forward(self, x: Tensor, Np: int, attn_bias=None, xpos=None) -> Tensor:
 
         B, N, C = x.shape
@@ -343,6 +344,32 @@ class FlashAttentionRope(AttentionRope):
         # Re-concatenate the patch and voxel tokens
         q = torch.cat([q_patch, q_voxel], dim=2)
         k = torch.cat([k_patch, k_voxel], dim=2)
+
+        if q.dtype == torch.bfloat16:
+            with nn.attention.sdpa_kernel(SDPBackend.FLASH_ATTENTION):
+                x = scaled_dot_product_attention(q, k, v)
+        else:
+            with nn.attention.sdpa_kernel([SDPBackend.MATH, SDPBackend.EFFICIENT_ATTENTION]):
+                x = scaled_dot_product_attention(q, k, v)
+
+        x = x.transpose(1, 2).reshape([B, N, C])
+
+        x = self.proj(x)
+        x = self.proj_drop(x)
+        return x
+
+class FlashAttentionRope(AttentionRope):
+    def forward(self, x: Tensor, attn_bias=None, xpos=None) -> Tensor:
+        B, N, C = x.shape
+        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).transpose(1, 3)
+
+        # q, k, v = unbind(qkv, 2)
+        q, k, v = [qkv[:,:,i] for i in range(3)]
+        q, k = self.q_norm(q).to(v.dtype), self.k_norm(k).to(v.dtype)
+
+        if self.rope is not None and xpos is not None:
+            q = self.rope(q, xpos)
+            k = self.rope(k, xpos)
 
         if q.dtype == torch.bfloat16:
             with nn.attention.sdpa_kernel(SDPBackend.FLASH_ATTENTION):
