@@ -17,6 +17,7 @@ def affine_transform(coords, cam_extrinsics):
     # conversion of homogeneous coordinates lets the affine transformation be expressed as a single matrix multiplication
     coords_homogeneous = torch.cat([coords, torch.ones(B, N, xyz, 1, device=coords.device)], dim=-1) # (B, N, xyz, 4)
     coords_cam_homogeneous = torch.einsum('bnij, bnkj -> bnki', cam_extrinsics, coords_homogeneous) # (B, N, xyz, 4)
+    coords_cam = coords_cam_homogeneous[..., :3] / (coords_cam_homogeneous[..., 3:] + 1e-8) # (B, N, xyz, 3)
 
     coords_cam = coords_cam_homogeneous[..., :3]
     return coords_cam
@@ -36,7 +37,7 @@ def reproject(coords_cam, cam_intrinsics, spatial_dims):
     coords_img_homogeneous = torch.einsum('bnij, bnkj -> bnki', cam_intrinsics, coords_cam) # (B, N, xyz, 3)
 
     # convert non-homogeneous coordinates
-    coords_img = coords_img_homogeneous[..., :2] / (coords_img_homogeneous[..., 2:] + 1e-30) # (B, N, xyz, 2)
+    coords_img = coords_img_homogeneous[..., :2] / (coords_img_homogeneous[..., 2:] + 1e-8) # (B, N, xyz, 2)
 
     # apply validity mask
     valid_mask = check_valid(coords_img, spatial_dims)
@@ -68,27 +69,17 @@ def scale_intrinsics(cam_intrinsics, scale):
     Scales camera intrinsic matrices based on the provided scale factors.
 
     Args:
-        cam_intrinsics (torch.Tensor): A tensor of shape (..., 3, 3) representing camera intrinsic matrices. (B = batch size)
-        scale (tuple): A tuple of two floats representing the scaling factors for width (sx) and height (sy) respectively.
+        cam_intrinsics (torch.Tensor): (..., 3, 3)
+        scale (tuple): (sx, sy)
     Returns:
-        torch.Tensor: A tensor of shape (B, 3, 3) representing the scaled camera intrinsic matrices.
+        torch.Tensor: (..., 3, 3)
     """
-
     sx, sy = scale
 
-    # scale focal length
-    fx = cam_intrinsics[:, 0, 0] / sx
-    fy = cam_intrinsics[:, 1, 0] / sy
-
-    # adjust principal point
-    cx = (cam_intrinsics[:, 0, 2] + 0.5) * sx - 0.5
-    cy = (cam_intrinsics[:, 1, 2] + 0.5) * sy - 0.5
-
-    # construct scaled intrinsics matrix
     scaled_intrinsics = cam_intrinsics.clone()
-    scaled_intrinsics[:, 0, 0] = fx
-    scaled_intrinsics[:, 1, 1] = fy
-    scaled_intrinsics[:, 0, 2] = cx
-    scaled_intrinsics[:, 1, 2] = cy
-    
+    scaled_intrinsics[..., 0, 0] *= sx  # fx
+    scaled_intrinsics[..., 1, 1] *= sy  # fy
+    scaled_intrinsics[..., 0, 2] *= sx  # cx
+    scaled_intrinsics[..., 1, 2] *= sy  # cy
+
     return scaled_intrinsics
