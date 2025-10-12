@@ -1,18 +1,12 @@
 import torch
 import torch.nn as nn
 from functools import partial
-from copy import deepcopy
-import math
 
 from .dinov2.layers import Mlp
-from ..utils.geometry import homogenize_points, ref_points_generator
-from ..utils.camera import affine_transform, reproject, scale_intrinsics
 from .layers.pos_embed import RoPE2D, PositionGetter
-from .layers.block import BlockRope, BlockRopeModified
-from .layers.attention import FlashAttentionRope, FlashAttentionRopeModified
-from .layers.transformer_head import TransformerDecoder, LinearPts3d
-from .layers.camera_head import CameraHead
-from .dinov2.hub.backbones import dinov2_vitl14, dinov2_vitl14_reg, dinov2_vits14_reg, dinov2_vitb14_reg
+from .layers.block import BlockRope
+from .layers.attention import FlashAttentionRope
+from .dinov2.hub.backbones import dinov2_vitl14_reg, dinov2_vits14_reg, dinov2_vitb14_reg
 from huggingface_hub import PyTorchModelHubMixin
 
 class Pi3Voxels(nn.Module, PyTorchModelHubMixin):
@@ -131,11 +125,12 @@ class Pi3Voxels(nn.Module, PyTorchModelHubMixin):
             # do not use position embedding for special tokens (camera and register tokens)
             # so set pos to 0 for the special tokens
             pos = pos + 1
-            pos_special = torch.zeros(B * N, self.patch_start_idx, 2).to(hidden.device).to(pos.dtype)
+            pos_special = torch.zeros(B * N, self.patch_start_idx, 2).to(pos.device).to(pos.dtype) # ensure on same device
             pos = torch.cat([pos_special, pos], dim=1)
        
         for i in range(len(self.decoder)):
             blk = self.decoder[i]
+            pos = pos.to(hidden.device) # in case pos is not on the same device as hidden
 
             if i % 2 == 0:
                 pos = pos.reshape(B*N, hw, -1)
